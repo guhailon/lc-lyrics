@@ -1,0 +1,89 @@
+# LC歌词 v0.2.0 云端编译：不签名导出（archive），LC 自己重签。
+# 做法照 LCProbe 的 build.yml，单 target。
+# 推代码就自动跑；跑完在该次运行的 Artifacts 里下载 LCLyrics-0.2.0.ipa
+# 与 LCLyrics-0.2.0-dSYM.zip。
+name: Build
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Xcode version
+        run: xcodebuild -version
+
+      - name: Self-check
+        # 红线：仓库里不许有 entitlements 文件；
+        # Swift 源码里不许写死版本号（版本号只从 Info.plist / Bundle 读）；
+        # Swift 源码里不许出现 MediaRemote（只用公开 MediaPlayer 接口）。
+        run: |
+          if find . -name '*.entitlements' -print -quit | grep -q .; then
+            echo "FAIL: found *.entitlements in repo"
+            find . -name '*.entitlements'
+            exit 1
+          fi
+          if grep -rn '"0.2.0"' --include='*.swift' LCLyrics/; then
+            echo "FAIL: hardcoded version string found in Swift source"
+            exit 1
+          fi
+          if grep -rn 'MediaRemote\|MRMediaRemote' --include='*.swift' LCLyrics/; then
+            echo "FAIL: MediaRemote reference found in Swift source"
+            exit 1
+          fi
+          echo "Self-check passed: no entitlements, no hardcoded version, no MediaRemote in Swift."
+
+      - name: Archive LCLyrics (unsigned)
+        run: |
+          xcodebuild -project LCLyrics.xcodeproj \
+            -scheme LCLyrics \
+            -configuration Release \
+            -archivePath build/LCLyrics.xcarchive \
+            archive CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
+
+      - name: Verify archive layout
+        run: |
+          APP=build/LCLyrics.xcarchive/Products/Applications/LCLyrics.app
+          ls -la "$APP"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Info.plist"
+          /usr/libexec/PlistBuddy -c "Print :CFBundleVersion" "$APP/Info.plist"
+
+      - name: Package IPA
+        run: |
+          rm -rf Payload LCLyrics-0.2.0.ipa
+          mkdir Payload
+          cp -r build/LCLyrics.xcarchive/Products/Applications/LCLyrics.app Payload/
+          zip -qr LCLyrics-0.2.0.ipa Payload
+          rm -rf Payload
+          ls -la LCLyrics-0.2.0.ipa
+          unzip -l LCLyrics-0.2.0.ipa
+
+      - name: Package dSYM
+        # archive 是 dwarf-with-dsym，xcarchive/dSYMs 里有 App 的 dSYM；
+        # ls 先验 dSYMs 在不在——没有就是构建配置被动过，这一步要响亮地失败。
+        run: |
+          ls -la build/LCLyrics.xcarchive/dSYMs/
+          rm -f LCLyrics-0.2.0-dSYM.zip
+          zip -qr LCLyrics-0.2.0-dSYM.zip build/LCLyrics.xcarchive/dSYMs
+          ls -la LCLyrics-0.2.0-dSYM.zip
+          unzip -l LCLyrics-0.2.0-dSYM.zip
+
+      - name: Upload LCLyrics IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LCLyrics-0.2.0
+          path: LCLyrics-0.2.0.ipa
+
+      - name: Upload LCLyrics dSYM artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LCLyrics-0.2.0-dSYM
+          path: LCLyrics-0.2.0-dSYM.zip
