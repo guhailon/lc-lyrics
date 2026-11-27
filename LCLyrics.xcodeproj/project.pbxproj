@@ -237,7 +237,7 @@
 					100000000000000000000006 /* LCLyrics */ = {
 						CreatedOnToolsVersion = 15.0;
 						LastSwiftMigration = 1500;
-					};;
+					};
 				};
 			};
 			buildConfigurationList = 100000000000000000000011 /* Build configuration list for PBXProject "LCLyrics" */;
